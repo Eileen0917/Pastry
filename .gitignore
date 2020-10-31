@@ -1,0 +1,5 @@
+.ionide/
+obj/Debug/
+obj/fsac.cache
+.DS_Store
+others/
