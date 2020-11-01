@@ -17,6 +17,7 @@ type bossMessage =
 
 type nodeMessage = 
     | FirstJoin of string
+    | StartRouting of string
 
 
 let system = ActorSystem.Create("FSharp")
@@ -34,12 +35,20 @@ let getRandomID(i:int, lenUUID: int):string =
 
 
 let pastryNode nodeID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nodeMessage>) = 
+    // let selfActor = nodeMailbox.Self
+    // let bossActor = select ("akka://FSharp/user/boss") system
 
     let rec loop () = actor {    
         let! (msg: nodeMessage) = nodeMailbox.Receive()
         match msg with 
         | FirstJoin nid ->
             printfn "ok FirstJoin %s" nid
+            nodeMailbox.Sender() <! Joined nid
+        
+        | StartRouting m ->
+            printfn "ok StartRouting"
+            // selfActor <! Forward
+
 
         return! loop ()
     } 
@@ -75,6 +84,29 @@ let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) =
             i <- i + 1
             peer <! FirstJoin nodeID
             printfn "[Boss Init]"
+        
+        | Joined nid -> 
+            selfActor <! Init nodeID
+            printfn "Boss Joined"
+            // count <- count + 1
+            // if count = numsNodes then  
+            //     // Thread.Sleep(1000)
+            //     for p in peerList do
+            //         let m:string = "message!"
+            //         p <! StartRouting m
+            // else
+            //     selfActor <! Init nodeID
+        
+        | Init nid ->
+            let initNodeid = getRandomID(i, lenUUID)
+            idHash.Add(initNodeid) |> ignore
+            let peer = spawn system initNodeid (pastryNode initNodeid numsReq numsNodes b l lenUUID logBaseB)
+            peerList <- peerList @ [peer]
+            i <- i + 1
+            // let peer1 = select ("akka://FSharp/user/" + nid) system
+            // peer <! Join peer1
+            printfn "Boss Init"
+        
             
 
         return! loop ()
