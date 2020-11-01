@@ -1,4 +1,3 @@
-
 #r "nuget: Akka.FSharp" 
 #r "nuget: Akka.TestKit" 
 
@@ -18,6 +17,11 @@ type bossMessage =
 type nodeMessage = 
     | FirstJoin of string
     | StartRouting of string
+    | Join of ActorSelection
+    | Forward 
+    | AddMe
+    | NextPeer
+    | Deliver
 
 
 let system = ActorSystem.Create("FSharp")
@@ -35,8 +39,8 @@ let getRandomID(i:int, lenUUID: int):string =
 
 
 let pastryNode nodeID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nodeMessage>) = 
-    // let selfActor = nodeMailbox.Self
-    // let bossActor = select ("akka://FSharp/user/boss") system
+    let selfActor = nodeMailbox.Self
+    let bossActor = select ("akka://FSharp/user/boss") system
 
     let rec loop () = actor {    
         let! (msg: nodeMessage) = nodeMailbox.Receive()
@@ -46,16 +50,41 @@ let pastryNode nodeID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<
             nodeMailbox.Sender() <! Joined nid
         
         | StartRouting m ->
-            printfn "ok StartRouting"
-            // selfActor <! Forward
+            printfn "ok StartRouting %s" m
+            selfActor <! Forward
+        
+        | Join p ->
+            printfn "Join %A" p
 
+        | Forward ->
+            printfn "Forward"
+            // if 1 <> 1 then
+            //     printfn "forward"
+            // else
+            //     bossActor <! Finished
+        
+        | AddMe ->
+            printfn "AddMe"
+            // if 1 = 1 then
+            //     selfActor <! Deliver
+            // else
+            //     selfActor <! NextPeer
+        
+        | Deliver ->
+            printfn "Deliver"
+            // bossActor <! Joined
+
+        | NextPeer ->
+            printfn "NextPeer"
+            // selfActor <! AddMe
 
         return! loop ()
     } 
     loop ()
 
 
-let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) =  
+let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) = 
+    printfn "aaa %A" bossMailbox.Context.Self.Path
     // let selfActor = select ("akka://FSharp/user/boss") system
     let selfActor = bossMailbox.Self
     let b:int = 3
@@ -83,19 +112,17 @@ let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) =
             peerList <- peerList @ [peer]
             i <- i + 1
             peer <! FirstJoin nodeID
-            printfn "[Boss Init]"
+            printfn "[Boss Initialize]"
         
         | Joined nid -> 
-            selfActor <! Init nodeID
-            printfn "Boss Joined"
-            // count <- count + 1
-            // if count = numsNodes then  
-            //     // Thread.Sleep(1000)
-            //     for p in peerList do
-            //         let m:string = "message!"
-            //         p <! StartRouting m
-            // else
-            //     selfActor <! Init nodeID
+            count <- count + 1
+            if count = numsNodes then  
+                // Thread.Sleep(1000)
+                for p in peerList do
+                    let m:string = "message!"
+                    p <! StartRouting m
+            else
+                selfActor <! Init nodeID
         
         | Init nid ->
             let initNodeid = getRandomID(i, lenUUID)
@@ -103,11 +130,21 @@ let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) =
             let peer = spawn system initNodeid (pastryNode initNodeid numsReq numsNodes b l lenUUID logBaseB)
             peerList <- peerList @ [peer]
             i <- i + 1
-            // let peer1 = select ("akka://FSharp/user/" + nid) system
-            // peer <! Join peer1
-            printfn "Boss Init"
-        
-            
+            let peer1 = select ("akka://FSharp/user/" + nid) system
+            peer <! Join peer1
+            printfn "[Boss Init]"
+
+        | Finished nHops ->
+            printfn "[Boss Finished]"
+            terminateCount <- terminateCount + 1
+            totalHops <- double nHops
+            if terminateCount >= (numsNodes * numsReq) then
+                // Thread.Sleep(1000)
+                printfn "All nodes have finished routing ..."
+                printfn "Total routes: %f" (numN * numR)
+                printfn "Total hops: %f" totalHops
+                printfn "Average hops per route: %f" (totalHops / (numN * numR))
+                Environment.Exit 1  
 
         return! loop ()
     }
@@ -119,8 +156,17 @@ let main () =
     let numsOfNodes = int(argv.[3])
     let numRequests = int(argv.[4])
 
-    let pastryBoss = spawn system "boss" (boss numsOfNodes numRequests)
-    pastryBoss <! Initialize
+    for timeout in [1000000] do
+        try
+            let pastryBoss = spawn system "boss" (boss numsOfNodes numRequests) 
+            let task = (pastryBoss <? Initialize)
+            Async.RunSynchronously (task, timeout)
+
+        with :? TimeoutException ->
+            printfn "ask: timeout!"
+
+    // let pastryBoss = spawn system "boss" (boss numsOfNodes numRequests)
+    // pastryBoss <! Initialize
 
     0
 
