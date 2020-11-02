@@ -17,14 +17,18 @@ type bossMessage =
 type nodeMessage = 
     | FirstJoin of string
     | StartRouting of string
-    | Join of ActorSelection
+    | Join of string
     | Forward 
-    | AddMe
+    | AddMe of string * string [,] * int list * int list * int
     | NextPeer
     | Deliver
 
 
 let system = ActorSystem.Create("FSharp")
+
+let min(x:int, y:int):int =
+    if x < y then x 
+    else y
 
 let getRandomID(i:int, lenUUID: int):string = 
     let mutable sb = ""
@@ -37,24 +41,44 @@ let getRandomID(i:int, lenUUID: int):string =
 
     strZ
 
+let shl(nID1:string, nID2:string):int =
+    let maxSize = min(nID1.Length, nID2.Length)
+    let mutable i:int = 0
 
-let pastryNode nodeID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nodeMessage>) = 
+    while i < maxSize && nID1.[i] = nID2.[i] do
+        i <- i + 1
+
+    i
+
+    
+
+let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nodeMessage>) = 
     let selfActor = nodeMailbox.Self
     let bossActor = select ("akka://FSharp/user/boss") system
+
+    let nodeID: String = nID
+    let rTable: string[,] = Array2D.zeroCreate<string> lenUUID lenUUID
+    let largeLeaf = List.empty<int>
+    let smallLeaf = List.empty<int>
+    let largeLeafD = List.empty<int>
+    let smallLeafD = List.empty<int>
 
     let rec loop () = actor {    
         let! (msg: nodeMessage) = nodeMailbox.Receive()
         match msg with 
         | FirstJoin nid ->
-            printfn "ok FirstJoin %s" nid
             nodeMailbox.Sender() <! Joined nid
         
         | StartRouting m ->
             printfn "ok StartRouting %s" m
             selfActor <! Forward
         
-        | Join p ->
-            printfn "Join %A" p
+        | Join nextNID ->
+            printfn "Join %A" nextNID
+
+            let l = shl(nodeID, nextNID)
+            select ("akka://FSharp/user/" + nextNID) system <! AddMe(nodeID, rTable, largeLeaf, smallLeaf, 0)
+
 
         | Forward ->
             printfn "Forward"
@@ -63,7 +87,7 @@ let pastryNode nodeID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<
             // else
             //     bossActor <! Finished
         
-        | AddMe ->
+        | AddMe (destination, rT, lLeaf, sLeaf, lev)->
             printfn "AddMe"
             // if 1 = 1 then
             //     selfActor <! Deliver
@@ -84,9 +108,8 @@ let pastryNode nodeID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<
 
 
 let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) = 
-    printfn "aaa %A" bossMailbox.Context.Self.Path
-    // let selfActor = select ("akka://FSharp/user/boss") system
     let selfActor = bossMailbox.Self
+
     let b:int = 3
     let l:int = 16
     let lenUUID:int = 1 <<< b
@@ -130,8 +153,8 @@ let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) =
             let peer = spawn system initNodeid (pastryNode initNodeid numsReq numsNodes b l lenUUID logBaseB)
             peerList <- peerList @ [peer]
             i <- i + 1
-            let peer1 = select ("akka://FSharp/user/" + nid) system
-            peer <! Join peer1
+            // let peer1 = select ("akka://FSharp/user/" + nid) system
+            peer <! Join nid
             printfn "[Boss Init]"
 
         | Finished nHops ->
