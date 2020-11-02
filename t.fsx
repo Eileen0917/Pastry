@@ -18,7 +18,7 @@ type nodeMessage =
     | FirstJoin of string
     | StartRouting of string
     | Join of string
-    | Forward 
+    | Forward of string * int * int
     | AddMe of string * string [,] * int list * int list * int
     | NextPeer
     | Deliver
@@ -50,6 +50,20 @@ let shl(nID1:string, nID2:string):int =
 
     i
 
+let createRandomString(numsOfNodes:int, lenUUID:int):string = 
+    let r = Random().Next(numsOfNodes) + 1
+    let mutable sb = ""
+    let mutable strZ = ""
+    let flag:bool = true
+
+    sb <- sb + Convert.ToString(r, 8)
+    for i in sb.Length .. (lenUUID - 1) do
+        strZ <- strZ + Convert.ToString(0, 8)
+    
+    strZ <- strZ + sb
+
+    strZ
+
     
 
 let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nodeMessage>) = 
@@ -70,8 +84,10 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
             nodeMailbox.Sender() <! Joined nid
         
         | StartRouting m ->
-            printfn "ok StartRouting %s" m
-            selfActor <! Forward
+            for i in 1 .. numsReq do
+            let key:string = createRandomString(numsNodes, lenUUID)
+            let level = shl(key, nodeID)
+            selfActor <! Forward (key, level, 0)
         
         | Join nextNID ->
             printfn "Join %A" nextNID
@@ -80,7 +96,7 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
             select ("akka://FSharp/user/" + nextNID) system <! AddMe(nodeID, rTable, largeLeaf, smallLeaf, 0)
 
 
-        | Forward ->
+        | Forward (destination, level, noHops)->
             printfn "Forward"
             // if 1 <> 1 then
             //     printfn "forward"
