@@ -20,8 +20,8 @@ type nodeMessage =
     | Join of string
     | Forward of string * int * int
     | AddMe of string * string [,] * int list * int list * int
-    | NextPeer
-    | Deliver
+    | NextPeer of string * string [,] * int list * int list * int
+    | Deliver of string [,] * int list * int list
 
 
 let system = ActorSystem.Create("FSharp")
@@ -169,6 +169,14 @@ let route(dest: string, level: int, func: string, nodeID: string, lenUUID:int, l
 
     next
 
+let makeRoute(numNodes:int, lenUUID: int, nodeID: string, rTable: byref<_[,]>) = 
+    for i in 1 .. numNodes do
+        let tmp:string = getRandomID(i, lenUUID)
+        if tmp <> nodeID then
+            let level = shl(nodeID, tmp)
+            let dLevel: int = tmp.[level] |> charToInt
+            rTable.[level, dLevel] <- tmp
+
   
 
 let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nodeMessage>) = 
@@ -176,11 +184,11 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
     let bossActor = select ("akka://FSharp/user/boss") system
 
     let nodeID: string = nID
-    let rTable: string[,] = Array2D.zeroCreate<string> lenUUID lenUUID
-    let largeLeaf = List.empty<int>
-    let smallLeaf = List.empty<int>
-    let largeLeafD = List.empty<int>
-    let smallLeafD = List.empty<int>
+    let mutable rTable: string[,] = Array2D.zeroCreate<string> lenUUID lenUUID
+    let mutable largeLeaf = List.empty<int>
+    let mutable smallLeaf = List.empty<int>
+    let mutable largeLeafD = List.empty<int>
+    let mutable smallLeafD = List.empty<int>
 
     let rec loop () = actor {    
         let! (msg: nodeMessage) = nodeMailbox.Receive()
@@ -206,7 +214,6 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
             printfn "[Pastry] Forward"
 
             let mutable nHops = noHops
-            // TODO: fix the table var to be pointer
             let next = route(destination, level, "route", nodeID, lenUUID, largeLeaf, smallLeaf, rTable)
 
             if next = null then
@@ -223,14 +230,25 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
             //     selfActor <! Deliver
             // else
             //     selfActor <! NextPeer
-        
-        | Deliver ->
-            printfn "[Pastry] Deliver"
-            // bossActor <! Joined
 
-        | NextPeer ->
+        | NextPeer (nextPeerID, rt, lLT, sLT, level) ->
+            rTable <- Array2D.copy rt
+            largeLeaf <- List.map (fun x -> x) lLT
+            smallLeaf <- List.map (fun x -> x) sLT
+            select ("akka://FSharp/user/" + nextPeerID) system <! AddMe(nodeID, rTable, largeLeafD, smallLeafD, level)
+
             printfn "[Pastry] NextPeer"
-            // selfActor <! AddMe
+        
+        | Deliver (rt, lLT, sLT) ->
+            rTable <- Array2D.copy rt
+            largeLeaf <- List.map (fun x -> x) lLT
+            smallLeaf <- List.map (fun x -> x) sLT
+            makeRoute(numsNodes, lenUUID, nodeID, &rTable)
+
+            bossActor <! Joined(nodeID)
+
+            printfn "[Pastry] Deliver"
+            
 
         return! loop ()
     } 
@@ -274,7 +292,7 @@ let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) =
             // for p in peerList do
             //     let m:string = "message!"
             //     p <! StartRouting m
-            
+
             if count = numsNodes then  
                 // Thread.Sleep(1000)
                 for p in peerList do
@@ -285,14 +303,15 @@ let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) =
             printfn "[Boss] Joined"
         
         | Init nid ->
-            let initNodeid = getRandomID(i, lenUUID)
-            idHash.Add(initNodeid) |> ignore
-            let peer = spawn system initNodeid (pastryNode initNodeid numsReq numsNodes b l lenUUID logBaseB)
-            peerList <- peerList @ [peer]
-            i <- i + 1
-            // let peer1 = select ("akka://FSharp/user/" + nid) system
-            peer <! Join nid
-            printfn "[Boss] Init"
+            if (i > 1) && (i <= numsNodes) then
+                let initNodeid = getRandomID(i, lenUUID)
+                idHash.Add(initNodeid) |> ignore
+                let peer = spawn system initNodeid (pastryNode initNodeid numsReq numsNodes b l lenUUID logBaseB)
+                peerList <- peerList @ [peer]
+                i <- i + 1
+                // let peer1 = select ("akka://FSharp/user/" + nid) system
+                peer <! Join nid
+                printfn "[Boss] Init"
 
         | Finished nHops ->
             printfn "[Boss] Finished"
