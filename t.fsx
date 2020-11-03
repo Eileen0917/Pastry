@@ -251,7 +251,7 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
             
             if (not isLastHop) then
                 //var nextPeer = context.actorFor("akka://pastry/user/" + next)
-                sender |> NextPeer(nextPeer, dRT, lLT, sLT, level)
+                sender |> NextPeer(next, dRT, lLT, sLT, level)
 
             else 
                 sender |> Deliver(dRT, lLT, sLT)
