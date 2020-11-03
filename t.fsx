@@ -70,8 +70,8 @@ let route(dest: string, level: int, func: string, nodeID: string, lenUUID:int, l
     let mutable found: bool = false
     let mutable next: string = "somebody"
     let mutable nextDec: int = -1
-    let mutable destDec = dest |> int
-    let mutable currentDec = nodeID |> int
+    let mutable destDec = Convert.ToInt32(dest, 8)
+    let mutable currentDec = Convert.ToInt32(nodeID, 8)
     let mutable mindiff = abs(destDec - currentDec)
 
     if level = lenUUID then
@@ -116,20 +116,16 @@ let route(dest: string, level: int, func: string, nodeID: string, lenUUID:int, l
         let dl = dest.[level] |> charToInt
         if rTable.[level, dl] <> null then
             if func = "join" then
-                // TODO: fix when rTable constructed
-                printfn "."
-                // if int(rTable.[level, dl]) < destDec then
-                //     next <- rTable.[level, dl]
-                // else
-                //     next <- null
-                // found <- true
+                if Convert.ToInt32(rTable.[level, dl], 8) < destDec then
+                    next <- rTable.[level, dl]
+                else
+                    next <- null
+                found <- true
                         
             elif func = "route" then
-                // TODO: fix when rTable constructed
-                printfn "."
-                // if int(rTable.[level, dl]) <= destDec then
-                //     next <- rTable.[level, dl]ㄆ
-                //     found <- true
+                if Convert.ToInt32(rTable.[level, dl], 8) <= destDec then
+                    next <- rTable.[level, dl]ㄆ
+                    found <- true
     
     // try to get closer
     if not found then
@@ -147,9 +143,7 @@ let route(dest: string, level: int, func: string, nodeID: string, lenUUID:int, l
 
         for i in level .. (rTable.[*,0].Length - 1) do
             for j in 0 .. (rTable.[0,*].Length - 1) do
-                //TODO: fill rTable so that can add the value to eligibleNodes
-                printfn "."
-                // eligibleNodes.Add(int(rTable.[i, j])) |> ignore
+                eligibleNodes.Add(int(rTable.[i, j])) |> ignore
 
         for iSet in eligibleNodes do
             if iSet <> destDec then
