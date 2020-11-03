@@ -206,7 +206,7 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
             printfn "[Pastry] Forward"
 
             let mutable nHops = noHops
-            // TODO: fix the table var to be pointer
+            //TODO fix the table var to be pointer
             let next = route(destination, level, "route", nodeID, lenUUID, largeLeaf, smallLeaf, rTable)
 
             if next = null then
@@ -219,10 +219,12 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
         
         | AddMe (destination, rT, lLeaf, sLeaf, lev)->
             let mutable isLastHop : bool = false
-            let mutable dRT : string[,] 
-            Array.Copy(dRT, rT)
+            let mutable dRT: string[,] = Array2D.zeroCreate<string> lenUUID lenUUID
+            dRT <- Array2D.copy rT
+            //print "%A" dRT
             let mutable lLT = lLeaf |> List.map (fun x -> x) 
             let mutable sLT = sLeaf |> List.map (fun x -> x) 
+            //print "%A" sLT
             let level = shl(destination, nodeID)
             if (smallLeaf.isEmpty && largeLeaf.isEmpty) then
                 //ONLY ONE NODE IN NETWORK
@@ -237,7 +239,7 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
             UpdateLeafT(level, destination)
             UpdateSelfRT(level, destination)
 
-            Array.Copy(dRT, UpdateNewRT(destination, level, rT, lev)) //update one row in route table of destination node
+            dRT <- Array2D.copy UpdateNewRT(destination, level, rT, lev) //update one row in route table of destination node
             lLT = UpdateNewLarge(nodeID |> int, destination, lLT) |> List.map (fun x -> x)
             sLT = UpdateNewSmall(nodeID |> int, destination, sLT) |> List.map (fun x -> x)
 
@@ -251,10 +253,10 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
             
             if (not isLastHop) then
                 //var nextPeer = context.actorFor("akka://pastry/user/" + next)
-                sender |> NextPeer(next, dRT, lLT, sLT, level)
+                sender <! NextPeer(next, dRT, lLT, sLT, level)
 
             else 
-                sender |> Deliver(dRT, lLT, sLT)
+                sender <! Deliver(dRT, lLT, sLT)
             
             printfn "[Pastry] AddMe"
             // if 1 = 1 then
