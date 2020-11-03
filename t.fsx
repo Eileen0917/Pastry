@@ -169,6 +169,114 @@ let route(dest: string, level: int, func: string, nodeID: string, lenUUID:int, l
 
     next
 
+let UpdateLeafT(level:int, dest:string, nodeID:string, smallLeaf:int List, largeLeaf:int List, l: int) = 
+    let destDec = Convert.ToInt32(dest, 8)
+    let currentDec = Convert.ToInt32(nodeID, 8)
+    //let mutable largeLeaf = largeLeaf
+    //let mutable smallLeaf = smallLeaf
+
+    let mutable isLargeFull : bool = false 
+    let mutable isSmallFull : bool = false 
+    if (largeLeaf.Length = l / 2) then
+      isLargeFull <- true
+    if (smallLeaf.Length = l / 2) then
+      isSmallFull <- true
+
+    if (destDec > currentDec) then
+      if (not <| List.contains destDec largeLeaf) then 
+        if (isLargeFull) then
+          largeLeaf <- largeLeaf @ [destDec]
+          largeLeaf <- List.sort largeLeaf
+          largeLeaf <- largeLeaf |> Seq.take largeLeaf.Length - 1
+        else 
+          largeLeaf <- largeLeaf @ [destDec]
+          largeLeaf <- List.sorted largeLeaf
+        
+      
+    elif (destDec < currentDec) then
+      if (not <| List.contains destDec smallLeaf) then
+        if (isSmallFull) then
+          smallLeaf <- smallLeaf @ [destDec]
+          smallLeaf <- List.sort smallLeaf
+          smallLeaf <- smallLeaf |> Seq.take 0
+        else 
+          smallLeaf <- smallLeaf @ [destDec]
+          smallLeaf <- List.sort smallLeaf
+
+ let UpdateNewLarge(currentDec: int, dest: string, largeL: int List, l:int): int List =
+    let destDec = Convert.ToInt32(dest, 8)
+    let mutable ll = largeL |> List.map (fun x -> x) 
+    let mutable isLargeFull : bool = false 
+    if (ll.Length = l / 2) then
+      isLargeFull <- true
+    
+
+    //insert currentDec into destination large table
+    if (currentDec > destDec) then
+      if (not <| List.contains ll currentDec) then
+        if (isLargeFull) then
+          ll <- ll @ [currentDec]
+          ll <- List.sort ll 
+          ll <- ll |> Seq.take ll.Length - 1
+        else 
+          ll <- ll @ [currentDec]
+          ll <- List.sort ll
+        
+    ll
+
+let UpdateNewSmall(currentDec: int, dest: string, smallL: int List, l:int): int List = 
+
+    let destDec = Convert.ToInt32(dest, 8)
+    let mutable sl: int List = smallL |> List.map (fun x -> x) 
+    let mutable isSmallFull : bool = false
+
+    if (sl.Length = l / 2) then
+      isSmallFull <- true
+    
+
+    //insert currentDec into destination large table
+    if (currentDec < destDec) then
+      if (not <| List.contains sl currentDec) then
+        if (isSmallFull) then
+          sl <- sl @ [currentDec]
+          sl <- List.sort sl
+          sl <- sl |> Seq.take 0
+        else 
+          sl <- sl @ [currentDec]
+          sl <- List.sort sl
+     
+     sl
+ 
+let UpdateSelfRT(level: int, dest: string) =
+    //update routing table
+    
+    let DLevel: int = dest.[level] |> charToInt //digit at index "level" in node to be added
+    rTable.[level, DLevel] <- dest
+  
+let UpdateNewRT(dest: string, level: int, rt: string[,], lastLevel: int): string[,] = 
+    //copy only non-null values from correct rows of RTable of peer. This is necessary for initial phase. or else table will never be full
+    let newRT: string[,] = Array2D.zeroCreate<string> lenUUID lenUUID
+    newRT <- Array2D.copy rt
+
+    for i = lastLevel to level do
+      for j = 0 to rTable.[level].Length - 1 do
+        if (rTable.[i][j] <> null) then //copy only those values that are not null
+          newRT.[i][j] <- rTable.[i][j]
+      
+
+    //add nodeid of peer to table - WORKING
+    
+    let DLevel: int = nodeID.[level] |> charToInt
+    if (newRT.[level][DLevel] <> null) then //if there is a value in that place, compare it with the new value and take the larger one
+      newRT.[level][DLevel] <- convertToNodeID(Math.max(Integer.parseInt(newRT(level)(DLevel), 8), Integer.parseInt(nodeID, 8)))
+    else
+      newRT.[level][DLevel] <- nodeID
+    
+
+    //remove own nodeid from table - NOT WORKING!!! CHECK NOW
+    DLevel <- dest.[level] |> charToInt
+    newRT.[level][DLevel] <- null
+    newRT
   
 
 let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nodeMessage>) = 
@@ -206,7 +314,7 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
             printfn "[Pastry] Forward"
 
             let mutable nHops = noHops
-            //TODO fix the table var to be pointer
+            
             let next = route(destination, level, "route", nodeID, lenUUID, largeLeaf, smallLeaf, rTable)
 
             if next = null then
@@ -236,20 +344,20 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
             if (next = null) then
                 isLastHop <- true
 
-            UpdateLeafT(level, destination)
+            UpdateLeafT(level, destination, nodeID, smallLeaf, largeLeaf, l)
             UpdateSelfRT(level, destination)
 
             dRT <- Array2D.copy UpdateNewRT(destination, level, rT, lev) //update one row in route table of destination node
-            lLT = UpdateNewLarge(nodeID |> int, destination, lLT) |> List.map (fun x -> x)
-            sLT = UpdateNewSmall(nodeID |> int, destination, sLT) |> List.map (fun x -> x)
+            lLT = UpdateNewLarge(Convert.ToInt32(nodeID, 8), destination, lLT, l) |> List.map (fun x -> x)
+            sLT = UpdateNewSmall(Convert.ToInt32(nodeID, 8), destination, sLT, l) |> List.map (fun x -> x)
 
             for (curr in largeLeaf) do
-                lLT = UpdateNewLarge(curr, destination, lLT) |> List.map (fun x -> x)
-                sLT = UpdateNewSmall(curr, destination, sLT) |> List.map (fun x -> x)
+                lLT = UpdateNewLarge(curr, destination, lLT, l) |> List.map (fun x -> x)
+                sLT = UpdateNewSmall(curr, destination, sLT, l) |> List.map (fun x -> x)
             
             for (curr in smallLeaf) do
-                lLT = UpdateNewLarge(curr, destination, lLT) |> List.map (fun x -> x)
-                sLT = UpdateNewSmall(curr, destination, sLT) |> List.map (fun x -> x)
+                lLT = UpdateNewLarge(curr, destination, lLT, l) |> List.map (fun x -> x)
+                sLT = UpdateNewSmall(curr, destination, sLT, l) |> List.map (fun x -> x)
             
             if (not isLastHop) then
                 //var nextPeer = context.actorFor("akka://pastry/user/" + next)
