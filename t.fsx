@@ -26,6 +26,9 @@ type nodeMessage =
 
 
 let system = ActorSystem.Create("FSharp")
+let b : int = 3
+let l : int = 16
+let nodeIdLen: int = 1 <<< b
 
 let min(x:int, y:int):int =
     if x < y then x 
@@ -37,13 +40,27 @@ let max(x:int, y:int):int =
 
 let inline charToInt c = int c - int '0'
 
-let getRandomID(i:int, lenUUID: int):string = 
+let getRandomID(i:int):string = 
     let mutable sb = ""
     let mutable strZ = ""
 
     sb <- sb + Convert.ToString(i, 8)
-    for i in sb.Length .. (lenUUID - 1) do
+    for i in sb.Length .. (nodeIdLen - 1) do
         strZ <- strZ + Convert.ToString(0, 8)
+    strZ <- strZ + sb
+
+    strZ
+
+let createRandomString(numsOfNodes:int):string = 
+    let r = Random().Next(numsOfNodes) + 1
+    let mutable sb = ""
+    let mutable strZ = ""
+    let flag:bool = true
+
+    sb <- sb + Convert.ToString(r, 8)
+    for i in sb.Length .. (nodeIdLen - 1) do
+        strZ <- strZ + Convert.ToString(0, 8)
+    
     strZ <- strZ + sb
 
     strZ
@@ -57,21 +74,7 @@ let shl(nID1:string, nID2:string):int =
 
     i
 
-let createRandomString(numsOfNodes:int, lenUUID:int):string = 
-    let r = Random().Next(numsOfNodes) + 1
-    let mutable sb = ""
-    let mutable strZ = ""
-    let flag:bool = true
-
-    sb <- sb + Convert.ToString(r, 8)
-    for i in sb.Length .. (lenUUID - 1) do
-        strZ <- strZ + Convert.ToString(0, 8)
-    
-    strZ <- strZ + sb
-
-    strZ
-
-let route(dest: string, level: int, func: string, nodeID: string, lenUUID:int, largeLeaf: int list, smallLeaf: int list, rTable: byref<_[,]>): string = 
+let route(dest: string, level: int, func: string, nodeID: string, largeLeaf: int list, smallLeaf: int list, rTable: byref<_[,]>): string = 
     let mutable found: bool = false
     let mutable next: string = "somebody"
     let mutable nextDec: int = -1
@@ -79,7 +82,7 @@ let route(dest: string, level: int, func: string, nodeID: string, lenUUID:int, l
     let mutable currentDec = Convert.ToInt32(nodeID, 8)
     let mutable mindiff = abs(destDec - currentDec)
 
-    if level = lenUUID then
+    if level = nodeIdLen then
         next <- null
         found <- true
 
@@ -97,9 +100,9 @@ let route(dest: string, level: int, func: string, nodeID: string, lenUUID:int, l
                         for i in 0 .. (largeLeaf.Length - 1) do
                             if largeLeaf.[i] <= destDec then 
                                 nextDec <- largeLeaf.[i]
-                if (nextDec <> -1) then
-                    next <- getRandomID(nextDec, lenUUID)
-                    found <- true
+            if (nextDec <> -1) then
+                next <- getRandomID(nextDec)
+                found <- true
         elif destDec < currentDec then
             if not (List.isEmpty smallLeaf) then
                 if func = "join" then
@@ -112,9 +115,10 @@ let route(dest: string, level: int, func: string, nodeID: string, lenUUID:int, l
                         for i in 0 .. (smallLeaf.Length - 1) do
                             if smallLeaf.[i] <= destDec then 
                                 nextDec <- smallLeaf.[i]
-                if (nextDec <> -1) then
-                    next <- getRandomID(nextDec, lenUUID)
-                    found <- true
+                
+            if (nextDec <> -1) then
+                next <- getRandomID(nextDec)
+                found <- true
     
     // search in route table
     if not found then
@@ -138,12 +142,12 @@ let route(dest: string, level: int, func: string, nodeID: string, lenUUID:int, l
         let mutable eligibleNodes = new HashSet<int>()
 
         for i in 0 .. (largeLeaf.Length - 1) do
-            let largeleafNode = getRandomID(largeLeaf.[i], lenUUID)
+            let largeleafNode = getRandomID(largeLeaf.[i])
             if (shl(largeleafNode, dest) >= level) then
                 eligibleNodes.Add(largeLeaf.[i]) |> ignore
         
         for i in 0 .. (smallLeaf.Length - 1) do
-            let smallleafNode = getRandomID(smallLeaf.[i], lenUUID)
+            let smallleafNode = getRandomID(smallLeaf.[i])
             if (shl(smallleafNode, dest) >= level) then
                 eligibleNodes.Add(smallLeaf.[i]) |> ignore
 
@@ -161,7 +165,7 @@ let route(dest: string, level: int, func: string, nodeID: string, lenUUID:int, l
                     found <- true
 
         if found then
-            next <- getRandomID(nextDec, lenUUID)
+            next <- getRandomID(nextDec)
 
     //current node is the last node
     if not found then
@@ -170,9 +174,9 @@ let route(dest: string, level: int, func: string, nodeID: string, lenUUID:int, l
 
     next
 
-let makeRoute(numNodes:int, lenUUID: int, nodeID: string, rTable: byref<_[,]>) = 
+let makeRoute(numNodes:int, nodeID: string, rTable: byref<_[,]>) = 
     for i in 1 .. numNodes do
-        let tmp:string = getRandomID(i, lenUUID)
+        let tmp:string = getRandomID(i)
         if tmp <> nodeID then
             let level = shl(nodeID, tmp)
             let dLevel: int = tmp.[level] |> charToInt
@@ -188,18 +192,21 @@ let getListWithIdx(i:int, j:int, l: int list):int list =
 let UpdateLeafT(level:int, dest:string, nodeID:string, smallLeaf: byref<int list>, largeLeaf: byref<int list>, l: int) = 
     let destDec = Convert.ToInt32(dest, 8)
     let currentDec = Convert.ToInt32(nodeID, 8)
-    //let mutable largeLeaf = largeLeaf
-    //let mutable smallLeaf = smallLeaf
-
     let mutable isLargeFull : bool = false 
     let mutable isSmallFull : bool = false 
+
     if (largeLeaf.Length = l / 2) then
         isLargeFull <- true
     if (smallLeaf.Length = l / 2) then
         isSmallFull <- true
 
+    printfn "destDec: %A, currentDec: %A" destDec currentDec
+    printfn "largeLeaf: %A" largeLeaf
+    printfn "smallLeaf %A" smallLeaf
+
     if (destDec > currentDec) then
         if (not <| List.contains destDec largeLeaf) then 
+            printfn "hi i am here"
             largeLeaf <- largeLeaf @ [destDec]
             largeLeaf <- List.sort largeLeaf
             if (isLargeFull) then
@@ -254,8 +261,8 @@ let UpdateSelfRT(level: int, dest: string, rTable: byref<_[,]>) =
     let DLevel: int = dest.[level] |> charToInt //digit at index "level" in node to be added
     rTable.[level, DLevel] <- dest
 
-let UpdateNewRT(dest: string, level: int, rt: string[,], lastLevel: int, lenUUID: int, rTable: byref<_[,]>, nodeID: string): string[,] =
-    let mutable newRT = Array2D.zeroCreate<string> lenUUID lenUUID
+let UpdateNewRT(dest: string, level: int, rt: string[,], lastLevel: int, rTable: byref<_[,]>, nodeID: string): string[,] =
+    let mutable newRT = Array2D.zeroCreate<string> nodeIdLen nodeIdLen
     newRT <- Array2D.copy rt
 
     for i in lastLevel .. level do
@@ -265,7 +272,7 @@ let UpdateNewRT(dest: string, level: int, rt: string[,], lastLevel: int, lenUUID
 
     let mutable dLevel:int = nodeID.[level] |> charToInt
     if newRT.[level, dLevel] <> null then
-        newRT.[level, dLevel] <- getRandomID(max(Convert.ToInt32(newRT.[level, dLevel], 8), Convert.ToInt32(nodeID, 8)), lenUUID)
+        newRT.[level, dLevel] <- getRandomID(max(Convert.ToInt32(newRT.[level, dLevel], 8), Convert.ToInt32(nodeID, 8)))
     else
         newRT.[level, dLevel] <- nodeID
 
@@ -275,16 +282,14 @@ let UpdateNewRT(dest: string, level: int, rt: string[,], lastLevel: int, lenUUID
     newRT
   
 
-let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nodeMessage>) = 
+let pastryNode nID numsReq numsNodes (nodeMailbox:Actor<nodeMessage>) = 
     let selfActor = nodeMailbox.Self
     let bossActor = select ("akka://FSharp/user/boss") system
 
     let nodeID: string = nID
-    let mutable rTable: string[,] = Array2D.zeroCreate<string> lenUUID lenUUID
+    let mutable rTable: string[,] = Array2D.zeroCreate<string> nodeIdLen nodeIdLen
     let mutable largeLeaf = List.empty<int>
     let mutable smallLeaf = List.empty<int>
-    let mutable largeLeafD = List.empty<int>
-    let mutable smallLeafD = List.empty<int>
 
     let rec loop () = actor {    
         let! (msg: nodeMessage) = nodeMailbox.Receive()
@@ -294,23 +299,17 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
         
         | StartRouting m ->
             for i in 1 .. numsReq do
-            let key:string = createRandomString(numsNodes, lenUUID)
-            let level = shl(key, nodeID)
-            selfActor <! Forward (key, level, 0)
-            printfn "[Pastry] StartRouting"
+                let key:string = createRandomString(numsNodes)
+                let level = shl(key, nodeID)
+                selfActor <! Forward (key, level, 0)
         
         | Join nextNID ->
-            printfn "[Pastry] Join %A" nextNID
-
-            let l = shl(nodeID, nextNID)
             select ("akka://FSharp/user/" + nextNID) system <! AddMe(nodeID, rTable, largeLeaf, smallLeaf, 0)
 
 
         | Forward (destination, level, noHops)->
-            printfn "[Pastry] Forward"
-
             let mutable nHops = noHops
-            let next = route(destination, level, "route", nodeID, lenUUID, largeLeaf, smallLeaf, &rTable)
+            let next = route(destination, level, "route", nodeID, largeLeaf, smallLeaf, &rTable)
 
             if next = null then
                 bossActor <! Finished(nHops)
@@ -331,7 +330,7 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
                 //ONLY ONE NODE IN NETWORK
                 isLastHop <- true
 
-            let next = route(destination, level, "join", nodeID, lenUUID, largeLeaf, smallLeaf, &rTable)
+            let next = route(destination, level, "join", nodeID, largeLeaf, smallLeaf, &rTable)
 
             if (next = null) then
                 isLastHop <- true
@@ -340,11 +339,14 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
             UpdateSelfRT(level, destination, &rTable)
 
             //update one row in route table of destination node
-            let a = UpdateNewRT(destination, level, rT, lev, lenUUID, &rTable, nodeID)
+            let a = UpdateNewRT(destination, level, rT, lev, &rTable, nodeID)
             dRT <- Array2D.copy a
             lLT <- UpdateNewLarge(Convert.ToInt32(nodeID, 8), destination, &lLT, l) |> List.map (fun x -> x)
             sLT <- UpdateNewSmall(Convert.ToInt32(nodeID, 8), destination, &sLT, l) |> List.map (fun x -> x)
 
+
+            printfn "lLT: %A, sLT: %A" lLT sLT
+            printfn "nodeID: %A, dRT: %A" nodeID dRT
             for curr in largeLeaf do
                 lLT <- UpdateNewLarge(curr, destination, &lLT, l) |> List.map (fun x -> x)
                 sLT <- UpdateNewSmall(curr, destination, &sLT, l) |> List.map (fun x -> x)
@@ -360,25 +362,21 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
             else 
                 selfActor <! Deliver(dRT, lLT, sLT)
 
-            printfn "[Pastry] AddMe"
 
         | NextPeer (nextPeerID, rt, lLT, sLT, level) ->
             rTable <- Array2D.copy rt
             largeLeaf <- List.map (fun x -> x) lLT
             smallLeaf <- List.map (fun x -> x) sLT
-            select ("akka://FSharp/user/" + nextPeerID) system <! AddMe(nodeID, rTable, largeLeafD, smallLeafD, level)
+            select ("akka://FSharp/user/" + nextPeerID) system <! AddMe(nodeID, rTable, largeLeaf, smallLeaf, level)
 
-            printfn "[Pastry] NextPeer"
         
         | Deliver (rt, lLT, sLT) ->
             rTable <- Array2D.copy rt
             largeLeaf <- List.map (fun x -> x) lLT
             smallLeaf <- List.map (fun x -> x) sLT
-            makeRoute(numsNodes, lenUUID, nodeID, &rTable)
+            makeRoute(numsNodes, nodeID, &rTable)
 
             bossActor <! Joined(nodeID)
-
-            printfn "[Pastry] Deliver"
             
 
         return! loop ()
@@ -388,11 +386,6 @@ let pastryNode nID numsReq numsNodes b l lenUUID logBaseB (nodeMailbox:Actor<nod
 
 let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) = 
     let selfActor = bossMailbox.Self
-
-    let b:int = 3
-    let l:int = 16
-    let lenUUID:int = 1 <<< b
-    let logBaseB:int = int(Math.Log(float(numsNodes), float(lenUUID)))
     let mutable i:int = 1
     let idHash = new HashSet<string>()
     let mutable peerList= List.empty
@@ -408,13 +401,13 @@ let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) =
         let! (msg: bossMessage) = bossMailbox.Receive()
         match msg with
         | Initialize ->
-            nodeID <- getRandomID(i, lenUUID)
+            nodeID <- getRandomID(i)
             idHash.Add(nodeID) |> ignore
-            let peer = spawn system nodeID (pastryNode nodeID numsReq numsNodes b l lenUUID logBaseB)
+            let peer = spawn system nodeID (pastryNode nodeID numsReq numsNodes)
             peerList <- peerList @ [peer]
             i <- i + 1
             peer <! FirstJoin nodeID
-            printfn "[Boss] Initialize"
+
         
         | Joined nid -> 
             count <- count + 1
@@ -425,23 +418,22 @@ let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) =
                     p <! StartRouting m
             else
                 selfActor <! Init nodeID
-            printfn "[Boss] Joined"
+
         
         | Init nid ->
             if (i > 1) && (i <= numsNodes) then
-                let initNodeid = getRandomID(i, lenUUID)
+                let initNodeid = getRandomID(i)
                 idHash.Add(initNodeid) |> ignore
-                let peer = spawn system initNodeid (pastryNode initNodeid numsReq numsNodes b l lenUUID logBaseB)
+                let peer = spawn system initNodeid (pastryNode initNodeid numsReq numsNodes)
                 peerList <- peerList @ [peer]
                 i <- i + 1
                 // let peer1 = select ("akka://FSharp/user/" + nid) system
                 peer <! Join nid
-                printfn "[Boss] Init"
+
 
         | Finished nHops ->
-            printfn "[Boss] Finished"
             terminateCount <- terminateCount + 1
-            totalHops <- double nHops
+            totalHops <- totalHops + double nHops
             if terminateCount >= (numsNodes * numsReq) then
                 // Thread.Sleep(1000)
                 printfn "All nodes have finished routing ..."
@@ -468,9 +460,6 @@ let main () =
 
         with :? TimeoutException ->
             printfn "ask: timeout!"
-
-    // let pastryBoss = spawn system "boss" (boss numsOfNodes numRequests)
-    // pastryBoss <! Initialize
 
     0
 
