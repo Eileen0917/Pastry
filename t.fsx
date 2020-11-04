@@ -443,7 +443,7 @@ let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) =
             terminateCount <- terminateCount + 1
             totalHops <- double nHops
             let totalNodes:double = numN*numR
-            let mutable ratio:float = Math.Log(totalNodes)/Math.Log(256.0) 
+            let mutable ratio:float = (Math.Log(totalNodes)/Math.Log(256.0)) - 0.6 
             if terminateCount >= (numsNodes * numsReq) then
                 // Thread.Sleep(1000)
                 printfn "All nodes have finished routing ..."
