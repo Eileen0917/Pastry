@@ -6,13 +6,13 @@ open System.Collections.Generic
 open Akka.Actor
 open Akka.Configuration
 open Akka.FSharp
-open Akka.TestKit
 
 type bossMessage = 
     | Initialize
     | Init of string
     | Joined of string
     | Finished of int
+    | Trigger
 
 type nodeMessage = 
     | FirstJoin of string
@@ -22,8 +22,6 @@ type nodeMessage =
     | AddMe of string * string [,] * int list * int list * int
     | NextPeer of string * string [,] * int list * int list * int
     | Deliver of string [,] * int list * int list
-
-
 
 let system = ActorSystem.Create("FSharp")
 let b : int = 3
@@ -40,27 +38,13 @@ let max(x:int, y:int):int =
 
 let inline charToInt c = int c - int '0'
 
-let getRandomID(i:int):string = 
+let getRandomID(idx:int):string = 
     let mutable sb = ""
     let mutable strZ = ""
 
-    sb <- sb + Convert.ToString(i, 8)
+    sb <- sb + Convert.ToString(idx, 8)
     for i in sb.Length .. (nodeIdLen - 1) do
         strZ <- strZ + Convert.ToString(0, 8)
-    strZ <- strZ + sb
-
-    strZ
-
-let createRandomString(numsOfNodes:int):string = 
-    let r = Random().Next(numsOfNodes) + 1
-    let mutable sb = ""
-    let mutable strZ = ""
-    let flag:bool = true
-
-    sb <- sb + Convert.ToString(r, 8)
-    for i in sb.Length .. (nodeIdLen - 1) do
-        strZ <- strZ + Convert.ToString(0, 8)
-    
     strZ <- strZ + sb
 
     strZ
@@ -74,13 +58,13 @@ let shl(nID1:string, nID2:string):int =
 
     i
 
-let route(dest: string, level: int, func: string, nodeID: string, largeLeaf: int list, smallLeaf: int list, rTable: byref<_[,]>): string = 
+let route(curr: string, dest: string, level: int, func: string, largeLeaf: int list, smallLeaf: int list, rTable: byref<_[,]>): string = 
     let mutable found: bool = false
-    let mutable next: string = "somebody"
+    let mutable next: string = "next"
     let mutable nextDec: int = -1
-    let mutable destDec = Convert.ToInt32(dest, 8)
-    let mutable currentDec = Convert.ToInt32(nodeID, 8)
-    let mutable mindiff = abs(destDec - currentDec)
+    let mutable destDec = Convert.ToInt32(dest, nodeIdLen)
+    let mutable currDec = Convert.ToInt32(curr, nodeIdLen)
+    let mutable minDiff = abs(destDec - currDec)
 
     if level = nodeIdLen then
         next <- null
@@ -88,8 +72,8 @@ let route(dest: string, level: int, func: string, nodeID: string, largeLeaf: int
 
     //search in leaf table
     if not found then
-        if destDec > currentDec then
-            if not (List.isEmpty largeLeaf) then
+        if destDec > currDec then
+            if largeLeaf.Length <> 0 then
                 if func = "join" then
                     if destDec < largeLeaf.[largeLeaf.Length - 1] then
                         for i in 0 .. (largeLeaf.Length - 1) do
@@ -103,15 +87,15 @@ let route(dest: string, level: int, func: string, nodeID: string, largeLeaf: int
             if (nextDec <> -1) then
                 next <- getRandomID(nextDec)
                 found <- true
-        elif destDec < currentDec then
-            if not (List.isEmpty smallLeaf) then
+        elif destDec < currDec then
+            if smallLeaf.Length <> 0 then
                 if func = "join" then
-                    if destDec > smallLeaf.[0] then
+                    if destDec > smallLeaf.[smallLeaf.Length - 1] then
                         for i in 0 .. (smallLeaf.Length - 1) do
                             if smallLeaf.[i] < destDec then 
                                 nextDec <- smallLeaf.[i]
                 elif func = "route" then
-                    if destDec >= smallLeaf.[0] then
+                    if destDec >= smallLeaf.[smallLeaf.Length - 1] then
                         for i in 0 .. (smallLeaf.Length - 1) do
                             if smallLeaf.[i] <= destDec then 
                                 nextDec <- smallLeaf.[i]
@@ -124,43 +108,44 @@ let route(dest: string, level: int, func: string, nodeID: string, largeLeaf: int
     if not found then
         let dl = dest.[level] |> charToInt
         if rTable.[level, dl] <> null then
+            let decId: int = Convert.ToInt32(rTable.[level, dl], nodeIdLen)
             if func = "join" then
-                if Convert.ToInt32(rTable.[level, dl], 8) < destDec then
+                if decId < destDec then
                     next <- rTable.[level, dl]
                 else
                     next <- null
                 found <- true
                         
             elif func = "route" then
-                if Convert.ToInt32(rTable.[level, dl], 8) <= destDec then
+                if decId <= destDec then
                     next <- rTable.[level, dl]
                     found <- true
-
     
     // try to get closer
     if not found then
-        let mutable eligibleNodes = new HashSet<int>()
+        let mutable eligibleNodes = List.empty<int>
 
         for i in 0 .. (largeLeaf.Length - 1) do
             let largeleafNode = getRandomID(largeLeaf.[i])
             if (shl(largeleafNode, dest) >= level) then
-                eligibleNodes.Add(largeLeaf.[i]) |> ignore
+                eligibleNodes <- eligibleNodes @ [largeLeaf.[i]]
         
         for i in 0 .. (smallLeaf.Length - 1) do
             let smallleafNode = getRandomID(smallLeaf.[i])
             if (shl(smallleafNode, dest) >= level) then
-                eligibleNodes.Add(smallLeaf.[i]) |> ignore
+                eligibleNodes <- eligibleNodes @ [smallLeaf.[i]]
 
-        for i in level .. (rTable.[*,0].Length - 1) do
+        for i in 0 .. (rTable.[*,0].Length - 1) do
             for j in 0 .. (rTable.[0,*].Length - 1) do
                 if rTable.[i, j] <> null then
-                    eligibleNodes.Add(int(rTable.[i, j])) |> ignore
+                    let decRT: int = Convert.ToInt32(rTable.[i,j], nodeIdLen)
+                    eligibleNodes <- eligibleNodes @ [decRT]
 
         for iSet in eligibleNodes do
             if iSet <> destDec then
-                let diff = abs(destDec - iSet)
-                if diff < mindiff then
-                    mindiff <- diff
+                let diff:int = abs(destDec - iSet)
+                if diff < minDiff then
+                    minDiff <- diff
                     nextDec <- iSet
                     found <- true
 
@@ -174,14 +159,6 @@ let route(dest: string, level: int, func: string, nodeID: string, largeLeaf: int
 
     next
 
-let makeRoute(numNodes:int, nodeID: string, rTable: byref<_[,]>) = 
-    for i in 1 .. numNodes do
-        let tmp:string = getRandomID(i)
-        if tmp <> nodeID then
-            let level = shl(nodeID, tmp)
-            let dLevel: int = tmp.[level] |> charToInt
-            rTable.[level, dLevel] <- tmp
-
 let getListWithIdx(i:int, j:int, l: int list):int list = 
     let mutable newList = List.empty<int>
     for idx in i .. j do
@@ -189,97 +166,79 @@ let getListWithIdx(i:int, j:int, l: int list):int list =
     
     newList
 
-let UpdateLeafT(level:int, dest:string, nodeID:string, smallLeaf: byref<int list>, largeLeaf: byref<int list>, l: int) = 
-    let destDec = Convert.ToInt32(dest, 8)
-    let currentDec = Convert.ToInt32(nodeID, 8)
-    let mutable isLargeFull : bool = false 
-    let mutable isSmallFull : bool = false 
+let updateLeafT(curr:string, dest:string, level:int, largeLeaf: byref<int list>, smallLeaf: byref<int list>) = 
+    let destDec = Convert.ToInt32(dest, nodeIdLen)
+    let currDec = Convert.ToInt32(curr, nodeIdLen)
+    let mutable isLargeFull: bool = false 
+    let mutable isSmallFull: bool = false 
 
     if (largeLeaf.Length = l / 2) then
         isLargeFull <- true
     if (smallLeaf.Length = l / 2) then
         isSmallFull <- true
 
-    printfn "destDec: %A, currentDec: %A" destDec currentDec
-    printfn "largeLeaf: %A" largeLeaf
-    printfn "smallLeaf %A" smallLeaf
-
-    if (destDec > currentDec) then
+    if (destDec > currDec) then
         if (not <| List.contains destDec largeLeaf) then 
-            printfn "hi i am here"
             largeLeaf <- largeLeaf @ [destDec]
             largeLeaf <- List.sort largeLeaf
             if (isLargeFull) then
                 largeLeaf <- getListWithIdx(0, largeLeaf.Length - 2, largeLeaf)
       
-    elif (destDec < currentDec) then
+    elif (destDec < currDec) then
         if (not <| List.contains destDec smallLeaf) then
             smallLeaf <- smallLeaf @ [destDec]
             smallLeaf <- List.sort smallLeaf
             if (isSmallFull) then
                 smallLeaf <- getListWithIdx(1, smallLeaf.Length - 1, smallLeaf)
 
-
-let UpdateNewLarge(currentDec: int, dest: string, largeL: byref<int list>, l:int): int list =
-    let destDec = Convert.ToInt32(dest, 8)
-    let mutable ll: int list = largeL |> List.map (fun x -> x) 
-    let mutable isLargeFull : bool = false 
+let updateNewLarge(currDec: int, dest: string, largeL: byref<int list>) =
+    let destDec = Convert.ToInt32(dest, nodeIdLen)
+    let mutable isLargeFull: bool = false 
     
-    if (ll.Length = l / 2) then
+    if (largeL.Length = l / 2) then
         isLargeFull <- true
 
-    // insert currentDec into destination large table
-    if (currentDec > destDec) then
-        if not (List.contains currentDec ll) then
-            ll <- ll @ [currentDec]
-            ll <- List.sort ll 
+    // insert currDec into destination large table
+    if (currDec > destDec) then
+        if not (List.contains currDec largeL) then
+            largeL <- largeL @ [currDec]
+            largeL <- List.sort largeL
             if (isLargeFull) then
-                ll <- getListWithIdx(0, ll.Length - 2, ll)
-        
-    ll
+                largeL <- getListWithIdx(0, largeL.Length - 2, largeL)
 
-let UpdateNewSmall(currentDec: int, dest: string, smallL: byref<int list>, l:int): int list = 
+let updateNewSmall(currDec: int, dest: string, smallL: byref<int list>) = 
     let destDec = Convert.ToInt32(dest, 8)
-    let mutable sl: int list = smallL |> List.map (fun x -> x) 
     let mutable isSmallFull : bool = false
 
-    if (sl.Length = l / 2) then
+    if (smallL.Length = l / 2) then
         isSmallFull <- true
     
     //insert currentDec into destination large table
-    if (currentDec < destDec) then
-        if (not <| List.contains currentDec sl) then
-            sl <- sl @ [currentDec]
-            sl <- List.sort sl
+    if (currDec < destDec) then
+        if (not <| List.contains currDec smallL) then
+            smallL <- smallL @ [currDec]
+            smallL <- List.sort smallL
             if (isSmallFull) then
-                sl <- getListWithIdx(1, sl.Length - 1, sl)
-
-    sl
+                smallL <- getListWithIdx(1, smallL.Length - 1, smallL)
  
-let UpdateSelfRT(level: int, dest: string, rTable: byref<_[,]>) =
+let updateSelfRT(dest: string, level: int, rTable: byref<_[,]>) =
     //update routing table
-    let DLevel: int = dest.[level] |> charToInt //digit at index "level" in node to be added
-    rTable.[level, DLevel] <- dest
+    let dl: int = dest.[level] |> charToInt
+    rTable.[level, dl] <- dest
 
-let UpdateNewRT(dest: string, level: int, rt: string[,], lastLevel: int, rTable: byref<_[,]>, nodeID: string): string[,] =
-    let mutable newRT = Array2D.zeroCreate<string> nodeIdLen nodeIdLen
-    newRT <- Array2D.copy rt
-
-    for i in lastLevel .. level do
-        for j in 0 .. (rTable.[level, *].Length - 1) do
-            if rTable.[i,j] <> null then
-                newRT.[i,j] <- rTable.[i,j]
-
-    let mutable dLevel:int = nodeID.[level] |> charToInt
-    if newRT.[level, dLevel] <> null then
-        newRT.[level, dLevel] <- getRandomID(max(Convert.ToInt32(newRT.[level, dLevel], 8), Convert.ToInt32(nodeID, 8)))
+let updateNewRT(curr: string, dest: string, level: int, rTable: byref<_[,]>) =
+    let mutable dl:int = curr.[level] |> charToInt
+    
+    if rTable.[level, dl] <> null then
+        let decRT = Convert.ToInt32(rTable.[level, dl], nodeIdLen)
+        let decCurr = Convert.ToInt32(curr, nodeIdLen)
+        if decRT < decCurr then
+            rTable.[level, dl] <- curr
     else
-        newRT.[level, dLevel] <- nodeID
+        rTable.[level, dl] <- curr
 
-    dLevel <- dest.[level] |> charToInt
-    newRT.[level, dLevel] <- null
-
-    newRT
+    dl <- dest.[level] |> charToInt
+    rTable.[level, dl] <- null
   
 
 let pastryNode nID numsReq numsNodes (nodeMailbox:Actor<nodeMessage>) = 
@@ -298,8 +257,8 @@ let pastryNode nID numsReq numsNodes (nodeMailbox:Actor<nodeMessage>) =
             nodeMailbox.Sender() <! Joined nid
         
         | StartRouting m ->
-            for i in 1 .. numsReq do
-                let key:string = createRandomString(numsNodes)
+            for i in 1 .. (numsReq - 1) do
+                let key:string = getRandomID(i)
                 let level = shl(key, nodeID)
                 selfActor <! Forward (key, level, 0)
         
@@ -309,7 +268,7 @@ let pastryNode nID numsReq numsNodes (nodeMailbox:Actor<nodeMessage>) =
 
         | Forward (destination, level, noHops)->
             let mutable nHops = noHops
-            let next = route(destination, level, "route", nodeID, largeLeaf, smallLeaf, &rTable)
+            let next = route(nodeID, destination, level, "route", largeLeaf, smallLeaf, &rTable)
 
             if next = null then
                 bossActor <! Finished(nHops)
@@ -330,37 +289,38 @@ let pastryNode nID numsReq numsNodes (nodeMailbox:Actor<nodeMessage>) =
                 //ONLY ONE NODE IN NETWORK
                 isLastHop <- true
 
-            let next = route(destination, level, "join", nodeID, largeLeaf, smallLeaf, &rTable)
+            let next = route(nodeID, destination, level, "join", largeLeaf, smallLeaf, &rTable)
 
             if (next = null) then
                 isLastHop <- true
 
-            UpdateLeafT(level, destination, nodeID, &smallLeaf, &largeLeaf, l)
-            UpdateSelfRT(level, destination, &rTable)
+            updateLeafT(nodeID, destination,level, &largeLeaf, &smallLeaf)
+            updateSelfRT(destination, level, &rTable)
 
-            //update one row in route table of destination node
-            let a = UpdateNewRT(destination, level, rT, lev, &rTable, nodeID)
-            dRT <- Array2D.copy a
-            lLT <- UpdateNewLarge(Convert.ToInt32(nodeID, 8), destination, &lLT, l) |> List.map (fun x -> x)
-            sLT <- UpdateNewSmall(Convert.ToInt32(nodeID, 8), destination, &sLT, l) |> List.map (fun x -> x)
+            for i in lev .. level do
+                for j in 0 .. (rTable.[level, *].Length - 1) do
+                    if rTable.[i,j] <> null then
+                        dRT.[i,j] <- rTable.[i,j]
 
+            updateNewRT(nodeID, destination, level, &dRT)
 
-            printfn "lLT: %A, sLT: %A" lLT sLT
-            printfn "nodeID: %A, dRT: %A" nodeID dRT
+            let nodeDec: int = Convert.ToInt32(nodeID, nodeIdLen)
+            updateNewLarge(nodeDec, destination, &lLT)
+            updateNewSmall(nodeDec, destination, &sLT)
+
             for curr in largeLeaf do
-                lLT <- UpdateNewLarge(curr, destination, &lLT, l) |> List.map (fun x -> x)
-                sLT <- UpdateNewSmall(curr, destination, &sLT, l) |> List.map (fun x -> x)
+                updateNewLarge(curr, destination, &lLT)
+                updateNewSmall(curr, destination, &sLT)
             
             for curr in smallLeaf do
-                lLT <- UpdateNewLarge(curr, destination, &lLT, l) |> List.map (fun x -> x)
-                sLT <- UpdateNewSmall(curr, destination, &sLT, l) |> List.map (fun x -> x)
+                updateNewLarge(curr, destination, &lLT)
+                updateNewSmall(curr, destination, &sLT)
             
             if not isLastHop then
-                //var nextPeer = context.actorFor("akka://pastry/user/" + next)
-                selfActor <! NextPeer(next, dRT, lLT, sLT, level)
+                nodeMailbox.Sender() <! NextPeer(next, dRT, lLT, sLT, level)
 
             else 
-                selfActor <! Deliver(dRT, lLT, sLT)
+                nodeMailbox.Sender() <! Deliver(dRT, lLT, sLT)
 
 
         | NextPeer (nextPeerID, rt, lLT, sLT, level) ->
@@ -374,7 +334,6 @@ let pastryNode nID numsReq numsNodes (nodeMailbox:Actor<nodeMessage>) =
             rTable <- Array2D.copy rt
             largeLeaf <- List.map (fun x -> x) lLT
             smallLeaf <- List.map (fun x -> x) sLT
-            makeRoute(numsNodes, nodeID, &rTable)
 
             bossActor <! Joined(nodeID)
             
@@ -386,60 +345,54 @@ let pastryNode nID numsReq numsNodes (nodeMailbox:Actor<nodeMessage>) =
 
 let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) = 
     let selfActor = bossMailbox.Self
-    let mutable i:int = 1
-    let idHash = new HashSet<string>()
+    let mutable idx:int = 1
+    let mutable firstNodeID:string = "hi"
     let mutable peerList= List.empty
-    let mutable prevNID:string = "first"
     let mutable count:int = 0
     let mutable terminateCount:int = 0
-    let numN:double = double (numsNodes)
-    let numR:double = double (numsReq)
     let mutable totalHops: double = 0.0
-    let mutable nodeID:string = "hi"
+    let totalRequests : int = numsNodes * numsReq
+    
 
     let rec loop () = actor {
         let! (msg: bossMessage) = bossMailbox.Receive()
         match msg with
         | Initialize ->
-            nodeID <- getRandomID(i)
-            idHash.Add(nodeID) |> ignore
-            let peer = spawn system nodeID (pastryNode nodeID numsReq numsNodes)
+            firstNodeID <- getRandomID(idx)
+            let peer = spawn system firstNodeID (pastryNode firstNodeID numsReq numsNodes)
             peerList <- peerList @ [peer]
-            i <- i + 1
-            peer <! FirstJoin nodeID
+            idx <- idx + 1
+            peer <! FirstJoin firstNodeID
 
-        
         | Joined nid -> 
             count <- count + 1
             if count = numsNodes then  
-                // Thread.Sleep(1000)
+                selfActor <! Trigger
                 for p in peerList do
                     let m:string = "message!"
                     p <! StartRouting m
             else
-                selfActor <! Init nodeID
+                selfActor <! Init firstNodeID
 
+        | Trigger ->
+            for p in peerList do
+                let m:string = "message!"
+                p <! StartRouting m
         
         | Init nid ->
-            if (i > 1) && (i <= numsNodes) then
-                let initNodeid = getRandomID(i)
-                idHash.Add(initNodeid) |> ignore
+            if (idx > 1) && (idx <= numsNodes) then
+                let initNodeid = getRandomID(idx)
                 let peer = spawn system initNodeid (pastryNode initNodeid numsReq numsNodes)
                 peerList <- peerList @ [peer]
-                i <- i + 1
-                // let peer1 = select ("akka://FSharp/user/" + nid) system
+                idx <- idx + 1
                 peer <! Join nid
-
 
         | Finished nHops ->
             terminateCount <- terminateCount + 1
-            totalHops <- totalHops + double nHops
-            if terminateCount >= (numsNodes * numsReq) then
-                // Thread.Sleep(1000)
-                printfn "All nodes have finished routing ..."
-                printfn "Total routes: %f" (numN * numR)
-                printfn "Total hops: %f" totalHops
-                printfn "Average hops per route: %f" (totalHops / (numN * numR))
+            totalHops <- totalHops + double(nHops)
+            if terminateCount >= totalRequests then
+                printfn "Finished routing."
+                printfn "The average hops per route: %.3f" (totalHops / double(totalRequests))
                 Environment.Exit 1  
 
         return! loop ()
