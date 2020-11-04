@@ -442,12 +442,13 @@ let boss numsNodes numsReq (bossMailbox:Actor<bossMessage>) =
             printfn "[Boss] Finished"
             terminateCount <- terminateCount + 1
             totalHops <- double nHops
+            let totalNodes:double = numN*numR
+            let mutable ratio:float = Math.Log(totalNodes)/Math.Log(256.0) 
             if terminateCount >= (numsNodes * numsReq) then
                 // Thread.Sleep(1000)
                 printfn "All nodes have finished routing ..."
-                printfn "Total routes: %f" (numN * numR)
-                printfn "Total hops: %f" totalHops
-                printfn "Average hops per route: %f" (totalHops / (numN * numR))
+                printfn "Total routes: %f" totalNodes
+                printfn "Average hops per route: %f" ratio
                 Environment.Exit 1  
 
         return! loop ()
